@@ -20,6 +20,7 @@ from .blended_noise import BlendedUniformNoiseAttack
 import numpy as np
 from numpy.linalg import norm
 
+from .detection import Detector
 
 class BoundaryAttack(Attack):
     """A powerful adversarial attack that requires neither gradients
@@ -138,6 +139,9 @@ class BoundaryAttack(Attack):
         self.source_step = source_step
         self.internal_dtype = internal_dtype
         self.verbose = verbose
+
+        # Detector
+        self.detector = Detector(threshold=1.44, K=50)
 
         if not verbose:
             print('run with verbose=True to see details')
@@ -479,6 +483,9 @@ class BoundaryAttack(Attack):
                         strict=False)
                     t = time.time() - t
 
+                    # Detection on spherical candidate predictions
+                    self.detector.process(spherical_candidates.astype(external_dtype), num_queries_so_far=0)
+
                     assert batch_is_adversarial.shape == (current_batch_size,)
 
                     self.stats_spherical_prediction_duration[
@@ -512,6 +519,9 @@ class BoundaryAttack(Attack):
                     t = time.time() - t
                     # TODO: use t
 
+                    # Detection on candidate predictions
+                    self.detector.process(candidates.astype(external_dtype), num_queries_so_far=0)
+
                     assert batch_is_adversarial.shape == (len(indices),)
 
                     self.stats_step_adversarial.extendleft(
@@ -539,6 +549,10 @@ class BoundaryAttack(Attack):
                             candidates.astype(external_dtype), greedy=True,
                             strict=False, return_details=True)
                     t = time.time() - t
+
+                    # Detection on candidate predictions
+                    self.detector.process(candidates.astype(external_dtype), num_queries_so_far=0)
+
                     self.stats_prediction_duration[self.batch_size - 1] += t
                     self.stats_prediction_calls[
                         self.batch_size - 1] += 1
