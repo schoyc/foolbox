@@ -72,7 +72,8 @@ class BoundaryAttack(Attack):
             threaded_gen=True,
             alternative_generator=False,
             internal_dtype=np.float64,
-            verbose=False):
+            verbose=False,
+            detection_transform=None):
 
         """Applies the Boundary Attack.
 
@@ -139,6 +140,7 @@ class BoundaryAttack(Attack):
         self.source_step = source_step
         self.internal_dtype = internal_dtype
         self.verbose = verbose
+        self.detection_transform = detection_transform
 
         # Detector
         self.detector = Detector(threshold=1.44, K=50)
@@ -478,13 +480,16 @@ class BoundaryAttack(Attack):
                 # check spherical ones
                 if do_spherical:
                     t = time.time()
+                    sph_cands = spherical_candidates.astype(external_dtype)
+                    if self.detection_transform is not None:
+                        sph_cands = self.detection_transform(sph_cands)
                     _, batch_is_adversarial = a.batch_predictions(
-                        spherical_candidates.astype(external_dtype),
+                        sph_cands,
                         strict=False)
                     t = time.time() - t
 
                     # Detection on spherical candidate predictions
-                    self.detector.process(spherical_candidates.astype(external_dtype), num_queries_so_far=0)
+                    self.detector.process(sph_cands, num_queries_so_far=0)
 
                     assert batch_is_adversarial.shape == (current_batch_size,)
 
@@ -513,6 +518,9 @@ class BoundaryAttack(Attack):
                     assert candidates.shape == reduced_shape
 
                     t = time.time()
+                    cands = candidates.astype(external_dtype)
+                    if self.detection_transform is not None:
+                        cands = self.detection_transform(cands)
                     _, batch_is_adversarial = a.batch_predictions(
                         candidates.astype(external_dtype),
                         strict=False)
@@ -520,7 +528,7 @@ class BoundaryAttack(Attack):
                     # TODO: use t
 
                     # Detection on candidate predictions
-                    self.detector.process(candidates.astype(external_dtype), num_queries_so_far=0)
+                    self.detector.process(cands, num_queries_so_far=0)
 
                     assert batch_is_adversarial.shape == (len(indices),)
 
@@ -544,14 +552,17 @@ class BoundaryAttack(Attack):
                 else:
                     # check if one of the candidates is adversarial
                     t = time.time()
+                    cands = candidates.astype(external_dtype)
+                    if self.detection_transform is not None:
+                        cands = self.detection_transform(cands)
                     _, is_adversarial, adv_index, is_best, candidate_distance \
                         = a.batch_predictions(
-                            candidates.astype(external_dtype), greedy=True,
+                            cands, greedy=True,
                             strict=False, return_details=True)
                     t = time.time() - t
 
                     # Detection on candidate predictions
-                    self.detector.process(candidates.astype(external_dtype), num_queries_so_far=0)
+                    self.detector.process(cands, num_queries_so_far=0)
 
                     self.stats_prediction_duration[self.batch_size - 1] += t
                     self.stats_prediction_calls[

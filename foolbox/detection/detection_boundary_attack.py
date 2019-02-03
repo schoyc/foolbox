@@ -52,6 +52,16 @@ def pseudorandom_target(index, total_indices, true_class):
         target = rng.randint(0, total_indices)
     return target
 
+### Transforms ###
+def transform_brightness(C):
+    def brightness(x):
+        k = x.shape[0]
+        scalings = np.random.uniform(low=-C, high=C, size=(k,))
+        scalings = np.reshape(scalings, (k,) + (1, 1, 1))
+        return np.clip(x + scalings, a_min=0, a_max=1)
+
+    return brightness
+
 
 ### Create Model ###
 
@@ -91,7 +101,7 @@ for i in range(10):
 
     try:
         attack = BoundaryAttack()
-        attack(adv, starting_point=starting_img, iterations=100000, verbose=False)
+        attack(adv, starting_point=starting_img, iterations=100000, verbose=False, detection_transform=transform_brightness(0.7))
         print("[detections]", len(attack.detector.get_detections()), np.mean(attack.detector.get_detections()))
         dets.append(len(attack.detector.get_detections()))
         dists.append(np.mean(attack.detector.get_detections()))
