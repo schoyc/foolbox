@@ -85,7 +85,7 @@ dets = []
 dists = []
 successes = []
 indices = []
-for i in range(10):
+for i in range(100):
     img_index = np.random.randint(0, x_test.shape[0])
 
     x, y = x_test[img_index, None][0], y_test[img_index][0]
@@ -110,11 +110,15 @@ for i in range(10):
 
     try:
         attack = BoundaryAttack()
-        attack(adv, starting_point=starting_img, iterations=100000, verbose=False, detection_transform=transform_brightness(0.7))
+        attack(adv, starting_point=starting_img, iterations=100000, verbose=False, 
+                # detection_transform=transform_brightness(0.7)
+                # spherical_step=0.3, source_step=0.3, step_adaptation=1.1
+                )
         print("[detections]", len(attack.detector.get_detections()), np.mean(attack.detector.get_detections()))
+        print("[detections]", adv.adversarial_class == adv.target_class())
         dets.append(len(attack.detector.get_detections()))
         dists.append(np.mean(attack.detector.get_detections()))
-
+        successes.append(adv.adversarial_class == adv.target_class())
     except (AssertionError, AttributeError) as e:
         continue
 
