@@ -11,7 +11,10 @@ from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D, GlobalAveragePooling2D, Activation, InputLayer
 from keras.datasets import cifar10
 
+import ast
+
 CIFAR_10_WEIGHTS_PATH = "./keras_cifar10_trained_model_weights.h5"
+INDICES_FILE = None
 
 def load_cifar_model():
     cifar10 = cifar10_logits()
@@ -84,19 +87,31 @@ x_test, y_test = get_test_model_correct(kmodel)
 dets = []
 dists = []
 successes = []
-indices = []
+
+indices_provided = INDICES_FILE is not None
+
+if indices_provided:
+    f = open(INDICES_FILE, 'r')
+    img_indices = ast.literal_eval(f.readline().strip())
+else:
+    indices_targets = []
 for i in range(100):
-    img_index = np.random.randint(0, x_test.shape[0])
+    if indices_provided:
+        img_index, target_i, orig_class, target_class = img_indices[i]
+    else:
+        img_index = np.random.randint(0, x_test.shape[0])
 
     x, y = x_test[img_index, None][0], y_test[img_index][0]
     orig_class = y
     initial_img = x
     initial_img = initial_img.astype(np.float32) / 255.0
 
-    target_class = pseudorandom_target(img_index, 10, orig_class)
-    mask = (y_test == target_class).flatten()
-    x_test_target_class = x_test[mask]
-    target_i = np.random.randint(0, x_test_target_class.shape[0])
+    if not indices_provided:
+        target_class = pseudorandom_target(img_index, 10, orig_class)
+        mask = (y_test == target_class).flatten()
+        x_test_target_class = x_test[mask]
+        target_i = np.random.randint(0, x_test_target_class.shape[0])
+
     starting_img = x_test_target_class[target_i, None][0]
     starting_img = starting_img.astype(np.float32) / 255.0
 
@@ -119,7 +134,7 @@ for i in range(100):
         dets.append(len(attack.detector.get_detections()))
         dists.append(np.mean(attack.detector.get_detections()))
         successes.append(adv.adversarial_class == adv.target_class())
-        indices.append(img_index)
+        indices_targets.append((img_index, target_i, orig_class, target_class))
     except (AssertionError, AttributeError) as e:
         continue
 
@@ -128,5 +143,5 @@ for i in range(100):
 print("[detections]", dets)
 print("[dists]", dists)
 print("[successes]", successes)
-print("[indices]", indices)
+print("[indices]", indices_targets)
     # print("[detections]", len(attack.detector.get_detections()), np.mean(attack.detector.get_detections()))
