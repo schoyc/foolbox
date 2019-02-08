@@ -64,11 +64,11 @@ def transform_brightness(C):
 
 def get_test_model_correct(model):
     (_, _), (x_test, y_test) = cifar10.load_data()
-    scores = model.predict(x_test)
+    x_test_norm = x_test / 255.
+    scores = model.predict(x_test_norm)
     preds = scores.argmax(axis=-1)
-    model_correct = preds == y_test
+    model_correct = (preds == y_test.flatten())
     return x_test[model_correct], y_test[model_correct]
-
 
 ### Create Model ###
 
@@ -119,6 +119,7 @@ for i in range(100):
         dets.append(len(attack.detector.get_detections()))
         dists.append(np.mean(attack.detector.get_detections()))
         successes.append(adv.adversarial_class == adv.target_class())
+        indices.append(img_index)
     except (AssertionError, AttributeError) as e:
         continue
 
@@ -126,4 +127,6 @@ for i in range(100):
     # print("DETECTIONS:")
 print("[detections]", dets)
 print("[dists]", dists)
+print("[successes]", successes)
+print("[indices]", indices)
     # print("[detections]", len(attack.detector.get_detections()), np.mean(attack.detector.get_detections()))
