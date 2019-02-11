@@ -15,6 +15,7 @@ from .blended_noise import BlendedUniformNoiseAttack
 from .saltandpepper import SaltAndPepperNoiseAttack
 from .precomputed import PrecomputedImagesAttack
 from .boundary_attack import BoundaryAttack
+from .mod_boundary_attack import PerlinBoundaryAttack
 from .pointwise import PointwiseAttack
 from .binarization import BinarizationRefinementAttack
 from .newtonfool import NewtonFoolAttack
