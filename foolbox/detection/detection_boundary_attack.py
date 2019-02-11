@@ -6,6 +6,7 @@ from foolbox.attacks import BoundaryAttack
 
 from foolbox.adversarial import Adversarial
 from foolbox.criteria import TargetClass
+from foolbox.sampling.sample_generator import SampleGenerator
 
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D, GlobalAveragePooling2D, Activation, InputLayer
@@ -95,48 +96,52 @@ if indices_provided:
     img_indices = ast.literal_eval(f.readline().strip())
 else:
     indices_targets = []
-for i in range(100):
-    if indices_provided:
-        img_index, target_i, orig_class, target_class = img_indices[i]
-    else:
-        img_index = np.random.randint(0, x_test.shape[0])
 
-    x, y = x_test[img_index, None][0], y_test[img_index][0]
-    orig_class = y
-    initial_img = x
-    initial_img = initial_img.astype(np.float32) / 255.0
+img_shape = (32, 32, 3)
 
-    if not indices_provided:
-        target_class = pseudorandom_target(img_index, 10, orig_class)
-        mask = (y_test == target_class).flatten()
-        x_test_target_class = x_test[mask]
-        target_i = np.random.randint(0, x_test_target_class.shape[0])
+with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_gen:
+    for i in range(100):
+        if indices_provided:
+            img_index, target_i, orig_class, target_class = img_indices[i]
+        else:
+            img_index = np.random.randint(0, x_test.shape[0])
 
-    starting_img = x_test_target_class[target_i, None][0]
-    starting_img = starting_img.astype(np.float32) / 255.0
+        x, y = x_test[img_index, None][0], y_test[img_index][0]
+        orig_class = y
+        initial_img = x
+        initial_img = initial_img.astype(np.float32) / 255.0
 
-    adv = Adversarial(
-        model=model,
-        criterion=TargetClass(target_class=target_class),
-        original_image=initial_img,
-        original_class=orig_class,
-        threshold=0.05 * 0.05 / (32 * 32 * 3)
-    )
+        if not indices_provided:
+            target_class = pseudorandom_target(img_index, 10, orig_class)
+            mask = (y_test == target_class).flatten()
+            x_test_target_class = x_test[mask]
+            target_i = np.random.randint(0, x_test_target_class.shape[0])
 
-    try:
-        attack = BoundaryAttack()
-        attack(adv, starting_point=starting_img, iterations=100000, verbose=False, 
-                # detection_transform=transform_brightness(0.7)
-                # spherical_step=0.3, source_step=0.3, step_adaptation=1.1
-                )
-        print("[detections]", len(attack.detector.get_detections()), np.mean(attack.detector.get_detections()))
-        print("[detections]", adv.adversarial_class == adv.target_class())
-        dets.append(len(attack.detector.get_detections()))
-        dists.append(np.mean(attack.detector.get_detections()))
-        successes.append(adv.adversarial_class == adv.target_class())
-        indices_targets.append((img_index, target_i, orig_class, target_class))
-    except (AssertionError, AttributeError) as e:
-        continue
+        starting_img = x_test_target_class[target_i, None][0]
+        starting_img = starting_img.astype(np.float32) / 255.0
+
+        adv = Adversarial(
+            model=model,
+            criterion=TargetClass(target_class=target_class),
+            original_image=initial_img,
+            original_class=orig_class,
+            threshold=0.05 * 0.05 / (32 * 32 * 3)
+        )
+
+        try:
+            attack = BoundaryAttack()
+            attack(adv, starting_point=starting_img, iterations=100000, verbose=False,
+                    # detection_transform=transform_brightness(0.7)
+                    # spherical_step=0.3, source_step=0.3, step_adaptation=1.1
+                    )
+            print("[detections]", len(attack.detector.get_detections()), np.mean(attack.detector.get_detections()))
+            print("[detections]", adv.adversarial_class == adv.target_class())
+            dets.append(len(attack.detector.get_detections()))
+            dists.append(np.mean(attack.detector.get_detections()))
+            successes.append(adv.adversarial_class == adv.target_class())
+            indices_targets.append((img_index, target_i, orig_class, target_class))
+        except (AssertionError, AttributeError) as e:
+            continue
 
     ### Extract Detection Results ###
     # print("DETECTIONS:")

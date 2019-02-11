@@ -522,7 +522,7 @@ class BoundaryAttack(Attack):
                     if self.detection_transform is not None:
                         cands = self.detection_transform(cands)
                     _, batch_is_adversarial = a.batch_predictions(
-                        candidates.astype(external_dtype),
+                        cands,
                         strict=False)
                     t = time.time() - t
                     # TODO: use t
@@ -755,6 +755,8 @@ class BoundaryAttack(Attack):
             perturbation = rnd_normal_queue.get()
 
         assert perturbation.dtype == internal_dtype
+
+
 
         # ===========================================================
         # calculate candidate on sphere
