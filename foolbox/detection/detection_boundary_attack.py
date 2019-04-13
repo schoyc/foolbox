@@ -3,6 +3,7 @@ import numpy as np
 import foolbox
 
 from foolbox.attacks import BoundaryAttack
+from foolbox.attacks import PerlinBoundaryAttack
 
 from foolbox.adversarial import Adversarial
 from foolbox.criteria import TargetClass
@@ -92,8 +93,12 @@ successes = []
 indices_provided = INDICES_FILE is not None
 
 if indices_provided:
-    f = open(INDICES_FILE, 'r')
-    img_indices = ast.literal_eval(f.readline().strip())
+    # f = open(INDICES_FILE, 'r')
+    # img_indices = ast.literal_eval(f.readline().strip())
+    img_idxs = []
+    npz = np.load(INDICES_FILE)
+    for orig_i, target_i, target_class in zip(npz['original_idxs'], npz['target_idxs'], npz['target_classes']):
+        img_idxs.append((orig_i, target_i, target_class))
 else:
     indices_targets = []
 
@@ -102,7 +107,7 @@ img_shape = (32, 32, 3)
 with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_gen:
     for i in range(100):
         if indices_provided:
-            img_index, target_i, orig_class, target_class = img_indices[i]
+            img_index, target_i, target_class = img_idxs[i]
         else:
             img_index = np.random.randint(0, x_test.shape[0])
 
@@ -116,8 +121,10 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
             mask = (y_test == target_class).flatten()
             x_test_target_class = x_test[mask]
             target_i = np.random.randint(0, x_test_target_class.shape[0])
+            starting_img = x_test_target_class[target_i, None][0]
+        else:
+            starting_img = x_test[target_i, None][0]
 
-        starting_img = x_test_target_class[target_i, None][0]
         starting_img = starting_img.astype(np.float32) / 255.0
 
         adv = Adversarial(
@@ -129,8 +136,9 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
         )
 
         try:
-            attack = BoundaryAttack()
-            attack(adv, starting_point=starting_img, iterations=100000, verbose=False,
+            attack = PerlinBoundaryAttack()
+            attack(adv, starting_point=starting_img, iterations=100000, verbose=False, sample_gen=sample_gen,
+                    # normal_factor=1.0
                     # detection_transform=transform_brightness(0.7)
                     # spherical_step=0.3, source_step=0.3, step_adaptation=1.1
                     )
@@ -139,7 +147,7 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
             dets.append(len(attack.detector.get_detections()))
             dists.append(np.mean(attack.detector.get_detections()))
             successes.append(adv.adversarial_class == adv.target_class())
-            indices_targets.append((img_index, target_i, orig_class, target_class))
+            # indices_targets.append((img_index, target_i, orig_class, target_class))
         except (AssertionError, AttributeError) as e:
             continue
 
