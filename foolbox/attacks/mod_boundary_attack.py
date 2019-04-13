@@ -583,9 +583,10 @@ class PerlinBoundaryAttack(Attack):
             if new_perturbed is not None:
                 if not new_distance < distance:
                     # assert not is_best  # consistency with adversarial object
-                    self.stats_numerical_problems += 1
-                    warnings.warn('Internal inconsistency, probably caused by '
-                                  'numerical errors')
+                    # self.stats_numerical_problems += 1
+                    # warnings.warn('Internal inconsistency, probably caused by '
+                    #              'numerical errors')
+                    pass
                 else:
                     # assert is_best  # consistency with adversarial object
                     # Jonas 24.10.2017: this can be violated because spherical

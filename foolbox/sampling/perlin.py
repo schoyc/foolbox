@@ -82,10 +82,10 @@ def create_perlin_noise(seed=None, color=True, batch_size=1, normalize=True, pre
     :param batch_size: batch size.
     :param normalize: if True, normalizes each sample to have a L2-norm of 1.
     :param precalc_fade: if not None, uses the provided fade factors for faster calculation.
-    :return: samples of shape (b, 64, 64, 3)
+    :return: samples of shape (b, 32, 32, 3)
     """
 
-    pixels = 64
+    pixels = 32
 
     if seed is not None:
         np.random.seed(seed)
