@@ -9,21 +9,24 @@ from foolbox.attacks import PerlinBoundaryAttack
 from foolbox.adversarial import Adversarial
 from foolbox.criteria import TargetClass
 from foolbox.sampling.sample_generator import SampleGenerator
+from foolbox.distances import Linf
 
-from keras.models import Sequential
+from keras.models import Sequential, Model
 from keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D, GlobalAveragePooling2D, Activation, InputLayer
 from keras.datasets import cifar10
 
 import ast
 import time
 
-CIFAR_10_WEIGHTS_PATH = "./keras_cifar10_trained_model_weights.h5"
-INDICES_FILE = "./indices_exp.txt"
+CIFAR_10_WEIGHTS_PATH = "cifar10_ResNet20v1_model.h5"
+INDICES_FILE = "./image_idxs.npz"
 
 def load_cifar_model():
-    cifar10 = cifar10_logits()
-    cifar10.load_weights(CIFAR_10_WEIGHTS_PATH, by_name=True)
-    return cifar10
+    model = keras.models.load_model(CIFAR_10_WEIGHTS_PATH)
+    # logits = Model(inputs=model.input, outputs=model.layers[-2].output)
+    # logits = cifar10_logits()
+    # print(logits.output.op.inputs)
+    return model
 
 
 def cifar10_logits():
@@ -72,11 +75,14 @@ def transform_brightness(C):
 
 def get_test_model_correct(model):
     (_, _), (x_test, y_test) = cifar10.load_data()
+    return x_test, y_test
+    """
     x_test_norm = x_test / 255.
     scores = model.predict(x_test_norm)
     preds = scores.argmax(axis=-1)
     model_correct = (preds == y_test.flatten())
     return x_test[model_correct], y_test[model_correct]
+    """
 
 ### Create Model ###
 
@@ -115,6 +121,7 @@ x_test, y_test = get_test_model_correct(kmodel)
 x_test_idx = np.arange(x_test.shape[0])
 dets = []
 dists = []
+distortions = []
 successes = []
 failures = []
 errors = []
@@ -123,17 +130,22 @@ double_check = []
 indices_provided = INDICES_FILE is not None
 
 if indices_provided:
-    f = open(INDICES_FILE, 'r')
-    img_indices = ast.literal_eval(f.readline().strip())
+    # f = open(INDICES_FILE, 'r')
+    # img_indices = ast.literal_eval(f.readline().strip())
+    img_idxs = []
+    npz = np.load(INDICES_FILE)
+    for orig_i, target_i, target_class in zip(npz['original_idxs'], npz['target_idxs'], npz['target_classes']):
+        img_idxs.append((orig_i, target_i, target_class))
 
 indices_targets = []
 
 img_shape = (32, 32, 3)
 start_time = time.time()
 with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_gen:
-    for i in range(100):
+    for i in range(50, 60):
+        print("TRIAL", i)
         if indices_provided:
-            img_index, target_idx, orig_class, target_class = img_indices[i]
+            img_index, target_i, target_class = img_idxs[i]
         else:
             img_index = np.random.randint(0, x_test.shape[0])
 
@@ -147,11 +159,9 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
             mask = (y_test == target_class).flatten()
             x_test_target_class = x_test[mask]
             target_i = np.random.randint(0, x_test_target_class.shape[0])
-
             starting_img = x_test_target_class[target_i, None][0]
-            target_idx = x_test_idx[mask][target_i]
         else:
-            starting_img = x_test[target_idx, None][0]
+            starting_img = x_test[target_i, None][0]
 
         starting_img = starting_img.astype(np.float32) / 255.0
 
@@ -160,15 +170,16 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
             criterion=TargetClass(target_class=target_class),
             original_image=initial_img,
             original_class=orig_class,
-            threshold=0.05 * 0.05 / (32 * 32 * 3)
+            distance=Linf,
+            threshold=0.05
         )
 
         try:
             attack = PerlinBoundaryAttack()
-            attack(adv, starting_point=starting_img, iterations=100000, verbose=False, sample_gen=sample_gen,
+            attack(adv, starting_point=starting_img, iterations=100000, verbose=False, log_every_n_steps=1000, sample_gen=sample_gen,
                     # **kwargs
-                    normal_factor=0.0,
-                    # detection_transform=transform_brightness(0.5)
+                    normal_factor=0.0
+                    # detection_transform=transform_brightness(0.7)
                     # spherical_step=0.3, source_step=0.3, step_adaptation=1.1
                     )
 
@@ -180,18 +191,20 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
             print("[detections]", adv.adversarial_class == adv.target_class())
             dets.append(len(attack.detector.get_detections()))
             dists.append(np.mean(attack.detector.get_detections()))
+            distortions.append(np.linalg.norm(adv.original_image - adv.image))
             successes.append(adv.adversarial_class == adv.target_class())
-            indices_targets.append((img_index, target_idx, orig_class, target_class))
+            # indices_targets.append((img_index, target_idx, orig_class, target_class))
         except (AssertionError, AttributeError) as e:
             failures.append((img_index, target_idx, orig_class, target_class))
             errors.append(e)
             continue
-np.savez_compressed(save_name, detections=dets, dists=dists, indices_targets=indices_targets, failures=failures)
+np.savez_compressed(save_name, detections=dets, dists=dists, distortions=distortions, indices_targets=indices_targets, failures=failures)
     ### Extract Detection Results ###
     # print("DETECTIONS:")
 print("TIME:", time.time() - start_time)
 print("[detections]", dets)
 print("[dists]", dists)
+print("[distortions]", distortions)
 print("[successes]", successes)
 print("[indices]", indices_targets)
 print("[failures]", failures)

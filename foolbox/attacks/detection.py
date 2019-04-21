@@ -32,17 +32,19 @@ class Detector(object):
         encoder = cifar10_encoder()
         encoder.load_weights(weights_path, by_name=True)
         self.encoder = encoder
-        self.encode = lambda x : encoder.predict(np.expand_dims(x, axis=0))
+        self.encode = lambda x : encoder.predict(x)
 
 
     def process(self, queries, num_queries_so_far):
+        # print("Processing:", queries.shape/)
+        queries = query = self.encode(queries)
         for query in queries:
             self.process_query(query, num_queries_so_far)
             num_queries_so_far += 1
 
     def process_query(self, query, num_queries_so_far):
 
-        query = np.squeeze(self.encode(query))
+#         query = np.squeeze(self.encode(query))
 
         if len(self.memory) == 0 and len(self.buffer) < self.K:
             self.buffer.append(query)
