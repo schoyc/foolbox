@@ -121,7 +121,8 @@ x_test, y_test = get_test_model_correct(kmodel)
 x_test_idx = np.arange(x_test.shape[0])
 dets = []
 dists = []
-distortions = []
+l2_distortions = []
+linf_distortions = []
 successes = []
 failures = []
 errors = []
@@ -142,7 +143,7 @@ indices_targets = []
 img_shape = (32, 32, 3)
 start_time = time.time()
 with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_gen:
-    for i in range(50, 60):
+    for i in range(0, 5):
         print("TRIAL", i)
         if indices_provided:
             img_index, target_i, target_class = img_idxs[i]
@@ -176,35 +177,37 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
 
         try:
             attack = PerlinBoundaryAttack()
-            attack(adv, starting_point=starting_img, iterations=100000, verbose=False, log_every_n_steps=1000, sample_gen=sample_gen,
+            attack(adv, starting_point=starting_img, iterations=12500, verbose=False, log_every_n_steps=1000, sample_gen=sample_gen,
                     # **kwargs
                     normal_factor=0.0
                     # detection_transform=transform_brightness(0.7)
                     # spherical_step=0.3, source_step=0.3, step_adaptation=1.1
                     )
 
-            if i < 40:
-                pred = np.argmax(kmodel.predict(np.expand_dims(adv.image, 0)), axis=-1)
-                double_check.append((pred == target_class, pred, target_class))
+            #if i < 40:
+            #    pred = np.argmax(kmodel.predict(np.expand_dims(adv.image, 0)), axis=-1)
+            #    double_check.append((pred == target_class, pred, target_class))
 
             print("[detections]", len(attack.detector.get_detections()), np.mean(attack.detector.get_detections()))
             print("[detections]", adv.adversarial_class == adv.target_class())
+            print("[distortions]", adv.distance, np.linalg.norm(adv.original_image - adv.image))
             dets.append(len(attack.detector.get_detections()))
             dists.append(np.mean(attack.detector.get_detections()))
-            distortions.append(np.linalg.norm(adv.original_image - adv.image))
+            linf_distortions.append(adv.distance.value)
+            l2_distortions.append(np.linalg.norm(adv.original_image - adv.image))
             successes.append(adv.adversarial_class == adv.target_class())
             # indices_targets.append((img_index, target_idx, orig_class, target_class))
         except (AssertionError, AttributeError) as e:
             failures.append((img_index, target_idx, orig_class, target_class))
             errors.append(e)
             continue
-np.savez_compressed(save_name, detections=dets, dists=dists, distortions=distortions, indices_targets=indices_targets, failures=failures)
+np.savez_compressed(save_name, detections=dets, dists=dists, linf_distortions=linf_distortions, l2_distortions=l2_distortions, indices_targets=indices_targets, failures=failures)
     ### Extract Detection Results ###
     # print("DETECTIONS:")
 print("TIME:", time.time() - start_time)
 print("[detections]", dets)
 print("[dists]", dists)
-print("[distortions]", distortions)
+print("[distortions]", l2_distortions, linf_distortions)
 print("[successes]", successes)
 print("[indices]", indices_targets)
 print("[failures]", failures)
