@@ -1,6 +1,7 @@
 import keras
 import numpy as np
 import sys
+import argparse
 import foolbox
 
 from foolbox.attacks import BoundaryAttack
@@ -123,30 +124,29 @@ model = foolbox.models.KerasModel(kmodel, bounds=(0, 1))
 
 
 ### Parse Args ###
-args = sys.argv
-save_name = str(args[1])
 
-if len(args) >= 3:
-    variable = str(args[2])
-    param = float(args[3])
-if len(args) >= 5:
-    INDICES_FILE = str(args[4])
+parser = argparse.ArgumentParser()
+parser.add_argument('--save-name', type=str)
+parser.add_argument('--num_iters', type=int, default=12500)
+parser.add_argument('--normal_factor', type=float, default=1.0)
+parser.add_argument('--transform', type=str, default=None)
+parser.add_argument('--transform_param', type=float)
+parser.add_argument('--idx-range', type=int, nargs=2)
 
-kwargs = {}
+args = parser.parse_args()
+save_name = args.save_name
 
-if variable == 'normal_factor':
-    kwargs[variable] = param
-else:
+start_idx, end_idx = 0, 100
+idx_range_specified = args.idx_range is not None
+if idx_range_specified:
+    start_idx, end_idx = args.idx_range[0], args.idx_range[1]
+
+transform = args.transform
+if transform is not None:
     # variable is transform name
     sess = keras.backend.get_session()
-    print("Wrapping up transform", variable)
-    transform = wrap_tf_transform(sess, transforms.get_transform(variable, param))
-    kwargs['detection_transform'] = transform
-    # kwargs['normal_factor'] = 1.0
-
-                    # detection_transform=transform_brightness(0.7)
-
-
+    print("Wrapping up transform", args.transform)
+    transform = wrap_tf_transform(sess, transforms.get_transform(args.transform, args.transform_param))
 
 ### Init Boundary Attack ###
 
@@ -177,7 +177,7 @@ indices_targets = []
 img_shape = (32, 32, 3)
 start_time = time.time()
 with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_gen:
-    for i in range(0, 50):
+    for i in range(start_idx, end_idx):
         print("TRIAL", i)
         if indices_provided:
             img_index, target_i, target_class = img_idxs[i]
@@ -211,9 +211,9 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
 
         try:
             attack = PerlinBoundaryAttack()
-            attack(adv, starting_point=starting_img, iterations=12500, verbose=False, log_every_n_steps=1000, sample_gen=sample_gen,
-                    **kwargs,
-                    normal_factor=1.0
+            attack(adv, starting_point=starting_img, iterations=args.num_iters, verbose=False, log_every_n_steps=1000, sample_gen=sample_gen,
+                    normal_factor=args.normal_factor,
+                    detection_transform=transform
                     # detection_transform=transform_brightness(0.7)
                     # spherical_step=0.3, source_step=0.3, step_adaptation=1.1
                     )
@@ -232,7 +232,7 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
             successes.append(adv.adversarial_class == adv.target_class())
             # indices_targets.append((img_index, target_idx, orig_class, target_class))
         except (AssertionError, AttributeError) as e:
-            failures.append((img_index, target_idx, orig_class, target_class))
+            # failures.append((img_index, target_idx, orig_class, target_class))
             errors.append(e)
             continue
 np.savez_compressed(save_name, detections=dets, dists=dists, linf_distortions=linf_distortions, l2_distortions=l2_distortions, indices_targets=indices_targets, failures=failures)
