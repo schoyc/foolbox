@@ -102,6 +102,7 @@ def wrap_tf_transform(sess, transformer):
     transform_t = transformer.generate_samples(points, 1, (32, 32, 3))
     def transform(x):
         return sess.run(transform_t, feed_dict={points: x})
+    return transform
 
 def get_test_model_correct(model):
     (_, _), (x_test, y_test) = cifar10.load_data()
@@ -137,8 +138,9 @@ if variable == 'normal_factor':
     kwargs[variable] = param
 else:
     # variable is transform name
-    sess = tf.Session()
-    transform = wrap_tf_transform(transforms.get_transform(variable, param))
+    sess = keras.backend.get_session()
+    print("Wrapping up transform", variable)
+    transform = wrap_tf_transform(sess, transforms.get_transform(variable, param))
     kwargs['detection_transform'] = transform
     # kwargs['normal_factor'] = 1.0
 
@@ -175,7 +177,7 @@ indices_targets = []
 img_shape = (32, 32, 3)
 start_time = time.time()
 with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_gen:
-    for i in range(0, 5):
+    for i in range(0, 50):
         print("TRIAL", i)
         if indices_provided:
             img_index, target_i, target_class = img_idxs[i]
@@ -210,8 +212,8 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
         try:
             attack = PerlinBoundaryAttack()
             attack(adv, starting_point=starting_img, iterations=12500, verbose=False, log_every_n_steps=1000, sample_gen=sample_gen,
-                    # **kwargs
-                    normal_factor=0.0
+                    **kwargs,
+                    normal_factor=1.0
                     # detection_transform=transform_brightness(0.7)
                     # spherical_step=0.3, source_step=0.3, step_adaptation=1.1
                     )
@@ -236,13 +238,32 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
 np.savez_compressed(save_name, detections=dets, dists=dists, linf_distortions=linf_distortions, l2_distortions=l2_distortions, indices_targets=indices_targets, failures=failures)
     ### Extract Detection Results ###
     # print("DETECTIONS:")
+
+def process(npz):
+    x = np.load(npz)
+    success_mask = x['linf_distortions'] <= 0.05
+    failure_mask = x['linf_distortions'] > 0.05
+
+    queries = x['detections'] * x['dists']
+    detections = x['detections']
+    # Success rate, l2 distortion, number of queries, median detections
+    success_rate = success_mask.sum() / 100
+    l2_distortion = x['l2_distortions'][success_mask]
+    mean_queries, median_queries = np.mean(queries[success_mask]), np.median(queries[success_mask])
+    mean_detections, median_detections = np.mean(detections[success_mask]), np.median(detections[success_mask])
+    print("Success Rate", success_rate)
+    print("l2_distortion", np.mean(l2_distortion), np.median(l2_distortion))
+    print("mean, median queries:", mean_queries, median_queries)
+    print("mean, median detections:", mean_detections, median_detections)
+
 print("TIME:", time.time() - start_time)
 print("[detections]", dets)
 print("[dists]", dists)
 print("[distortions]", l2_distortions, linf_distortions)
-print("[successes]", successes)
-print("[indices]", indices_targets)
-print("[failures]", failures)
+process(save_name)
+# print("[successes]", successes)
+# print("[indices]", indices_targets)
+# print("[failures]", failures)
 print("[errors]", errors)
-print("[double_check]", double_check)
+# print("[double_check]", double_check)
     # print("[detections]", len(attack.detector.get_detections()), np.mean(attack.detector.get_detections()))
