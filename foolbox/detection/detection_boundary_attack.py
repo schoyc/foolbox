@@ -10,10 +10,13 @@ from foolbox.adversarial import Adversarial
 from foolbox.criteria import TargetClass
 from foolbox.sampling.sample_generator import SampleGenerator
 from foolbox.distances import Linf
+from foolbox.detection import transforms
 
 from keras.models import Sequential, Model
 from keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D, GlobalAveragePooling2D, Activation, InputLayer
 from keras.datasets import cifar10
+
+import tensorflow as tf
 
 import ast
 import time
@@ -62,7 +65,7 @@ def pseudorandom_target(index, total_indices, true_class):
         target = rng.randint(0, total_indices)
     return target
 
-### Transforms ###
+### NP Transforms ###
 def transform_brightness(C):
     def brightness(x):
         k = x.shape[0]
@@ -72,6 +75,33 @@ def transform_brightness(C):
         return np.clip(x + scalings, a_min=0, a_max=1)
 
     return brightness
+
+def transform_pixel_scale(C):
+    def pixel_scale(x):
+        k = x.shape[0]
+        scalings = 1 + np.random.uniform(low=-C, high=C, size=(k,))
+        scalings = np.reshape(scalings, (k,) + (1, 1, 1))
+        return np.clip(x * scalings, a_min=0, a_max=1)
+
+    return pixel_scale
+
+# For each channel, this Op computes the mean of the image pixels in the channel
+# and then adjusts each component x of each pixel to (x - mean) * contrast_factor + mean.
+def transform_contrast(C):
+    def contrast(x):
+        k = x.shape[0]
+        scalings = 1 + np.random.uniform(low=C, high=1, size=(k,))
+        scalings = np.reshape(scalings, (k,) + (1, 1, 1))
+        return np.clip(x * scalings, a_min=0, a_max=1)
+
+    return contrast
+
+## TF Transforms ##
+def wrap_tf_transform(sess, transformer):
+    points = tf.placeholder(tf.float32, [None, 32, 32, 3])
+    transform_t = transformer.generate_samples(points, 1, (32, 32, 3))
+    def transform(x):
+        return sess.run(transform_t, feed_dict={points: x})
 
 def get_test_model_correct(model):
     (_, _), (x_test, y_test) = cifar10.load_data()
@@ -105,13 +135,15 @@ kwargs = {}
 
 if variable == 'normal_factor':
     kwargs[variable] = param
-elif variable == 'detection_transform':
-    kwargs[variable] = transform_brightness(param)
-    # kwargs['normal_factor'] = 1.0
 else:
-    # pass
-    raise ValueError()
+    # variable is transform name
+    sess = tf.Session()
+    transform = wrap_tf_transform(transforms.get_transform(variable, param))
+    kwargs['detection_transform'] = transform
+    # kwargs['normal_factor'] = 1.0
+
                     # detection_transform=transform_brightness(0.7)
+
 
 
 ### Init Boundary Attack ###
