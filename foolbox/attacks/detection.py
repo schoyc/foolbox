@@ -3,14 +3,26 @@ import tensorflow as tf
 
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D, GlobalAveragePooling2D, Activation, InputLayer
+from collections import OrderedDict
 
 class Detector(object):
 
-    def __init__(self, threshold, K=50, size=None, chunk_size=1000, weights_path="./encoder_1.h5"):
+    def __init__(self, threshold, K=50, size=None, chunk_size=1000, name="detector", weights_path="./encoder_1.h5", ith_query=1, save_queries=False):
         self.threshold = threshold
         self.K = K
         self.size = size
         self.num_queries = 0
+        self.ith_query = ith_query
+        self.name = name
+
+        # Stats
+        self.prev_query = None
+        self.dist_to_prev = 0
+        self.curr_k_dist = 0
+
+        # Save queries
+        self.save_queries = save_queries
+        self.queries = []
 
         self.buffer = []
         self.memory = []
@@ -23,33 +35,31 @@ class Detector(object):
         self._init_encoder(weights_path)
 
     def _init_encoder(self, weights_path):
-        # if encoder is None:
-        #     self.encode = lambda x: x
-        # else:
-        #     # Restore model from tf session
-        #     # encoder = SiameseEncoder(margin=np.sqrt(10), learning_rate=1e-4)
-        #     # encoder.init_sess()
-        encoder = cifar10_encoder()
-        encoder.load_weights(weights_path, by_name=True)
-        self.encoder = encoder
-        self.encode = lambda x : encoder.predict(x)
+        raise NotImplementedError("Must implement your own encode function!")
 
+    def process(self, queries, num_queries_so_far, encoded=False):
+        if not encoded:
+            queries = self.encode(queries)
+        if self.save_queries:
+            self.queries.append(queries)
 
-    def process(self, queries, num_queries_so_far):
-        # print("Processing:", queries.shape/)
-        queries = query = self.encode(queries)
         for query in queries:
             self.process_query(query, num_queries_so_far)
             num_queries_so_far += 1
 
     def process_query(self, query, num_queries_so_far):
-
-#         query = np.squeeze(self.encode(query))
+        if self.num_queries % self.ith_query != 0:
+            self.num_queries += 1
+            return
 
         if len(self.memory) == 0 and len(self.buffer) < self.K:
             self.buffer.append(query)
             self.num_queries += 1
-            return False
+            return
+
+        if self.prev_query is not None:
+            self.dist_to_prev = np.linalg.norm(query - self.prev_query)
+        self.prev_query = query
 
         k = self.K
         all_dists = []
@@ -66,6 +76,7 @@ class Detector(object):
         dists = np.concatenate(all_dists)
         k_nearest_dists = np.partition(dists, k - 1)[:k, None]
         k_avg_dist = np.mean(k_nearest_dists)
+        self.curr_k_dist = k_avg_dist
 
         self.buffer.append(query)
         self.num_queries += 1
@@ -95,52 +106,89 @@ class Detector(object):
 
         return epochs
 
+class L2Detector(Detector):
+    def _init_encoder(self, weights_path):
+        self.encode = lambda x : x.reshape((x.shape[0], -1))
 
-class SiameseEncoder(object):
-    def __init__(self,
-                 margin,
-                 learning_rate=5e-6,
-                 momentum=0.9,
-                 decay=5e-4):
+class SimilarityDetector(Detector):
+    def _init_encoder(self, weights_path):
+        encoder = cifar10_encoder()
+        encoder.load_weights(weights_path, by_name=True)
+        self.encoder = encoder
+        self.encode = lambda x : encoder.predict(x)
 
-        self.learning_rate = learning_rate
-        self.margin = margin
+class ExperimentDetectors():
+    def __init__(self, active=True, detectors=None):
+        self.active = active
 
-        self.image_1 = tf.placeholder(tf.float32, [None, 32, 32, 3])
-        self.image_2 = tf.placeholder(tf.float32, [None, 32, 32, 3])
-        self.labels = tf.placeholder(tf.float32, [None])  # 0 for negative, 1 for positive
+        if detectors is None:
+            detectors = [
+                ("similarity", SimilarityDetector(threshold=1.44, K=50, weights_path="./encoders/encoder_all.h5")),
+                ("l2", L2Detector(threshold=5.069, K=50)),
+                ("sim-no-brightness", SimilarityDetector(threshold=1.56, K=50, weights_path="./encoders/encoder_no_brightness.h5")),
+            ]
 
-        self.cifar_encoder = cifar10_encoder()
-        self.encoding_1 = self.cifar_encoder(self.image_1)
-        self.encoding_2 = self.cifar_encoder(self.image_2)
+        self.detectors = OrderedDict({})
+        for d_name, detector in detectors:
+            self.detectors[d_name] = detector
 
-        #         self.encoding_1 = cnn_func(self.image_1, reuse=tf.AUTO_REUSE)
-        #         self.encoding_2 = cnn_func(self.image_2, reuse=tf.AUTO_REUSE)
+    def process(self, queries, num_queries_so_far, encoded=False):
+        if not self.active:
+            return
 
-        with tf.variable_scope('training', reuse=tf.AUTO_REUSE) as scope:
-            self.l2_distance_squared = tf.square(
-                tf.norm(tf.reshape(self.encoding_1 - self.encoding_2, (tf.shape(self.labels)[0], -1)), axis=-1))
-            self.positives_loss = tf.reduce_mean(self.labels * self.l2_distance_squared)
-            self.negatives_loss = tf.reduce_mean(
-                (1 - self.labels) * tf.maximum(0., margin ** 2 - self.l2_distance_squared))
-            self.loss = self.positives_loss + self.negatives_loss
-            self.update_op = tf.train.MomentumOptimizer(learning_rate, momentum).minimize(self.loss)
-
-    def init_sess(self):
-        tf_config = tf.ConfigProto()
-        tf_config.gpu_options.allow_growth = True  # may need if using GPU
-        self.sess = tf.Session(config=tf_config)
-        self.sess.__enter__()  # equivalent to `with self.sess:`
-        tf.global_variables_initializer().run()  # pylint: disable=E1101
-
-    def encode(self, x):
-        encoding = self.sess.run(self.encoding_1, feed_dict={self.image_1: x})
-        return encoding
-
-    def load_weights(self, weights_path):
-        self.cifar_encoder.load_weights(weights_path, by_name=True)
+        for name, detector in self.detectors.items():
+            detector.process(queries, num_queries_so_far, encoded=encoded)
+            # Log stats
+            # print("[detection-stats]: %s: k-dist %.5f; prev-dist %.5f" % (name, detector.curr_k_dist, detector.dist_to_prev))
 
 
+    def process_query(self, query, num_queries_so_far):
+        if not self.active:
+            return
+
+        for _, detector in self.detectors.items():
+            detector.process_query(query, num_queries_so_far)
+
+
+class MultiAttackDetectors(ExperimentDetectors):
+    def __init__(self, active=True, detectors=None):
+        """
+        detectors = [
+            ("l2-k=50-i=1", SimilarityDetector(threshold=1.44, K=50, name="sim-k=50-i=1", weights_path="./encoders/encoder_all.h5")),
+             ("l2-k=25-i=1", SimilarityDetector(threshold=1.26, K=25, weights_path="./encoders/encoder_all.h5")),
+             ("l2-k=10-i=1", SimilarityDetector(threshold=1.02, K=10, weights_path="./encoders/encoder_all.h5")),
+#            ("sim-k=50-i=5", SimilarityDetector(threshold=1.44, K=50, name="sim-k=50-i=5", weights_path="./encoders/encoder_all.h5", ith_query=5)),
+#            ("sim-k=50-i=10", SimilarityDetector(threshold=1.44, K=50, name="sim-k=50-i=10", weights_path="./encoders/encoder_all.h5", ith_query=10)),
+#            ("sim-k=50-i=25", SimilarityDetector(threshold=1.44, K=50, name="sim-k=50-i=25", weights_path="./encoders/encoder_all.h5", ith_query=25)),
+#            ("sim-k=50-i=50", SimilarityDetector(threshold=1.44, K=50, name="sim-k=50-i=50", weights_path="./encoders/encoder_all.h5", ith_query=50)),
+#             ("sim-k=50-i=100", SimilarityDetector(threshold=1.44, K=50, weights_path="./encoders/encoder_all.h5", ith_query=100)),
+#            ("sim-k=10-i=50", SimilarityDetector(threshold=1.02, K=10, weights_path="./encoders/encoder_all.h5", ith_query=50)),
+
+        ]
+"""
+
+        detectors = []
+        for k, delta in [(5, 0.799), (10, 1.02), (25, 1.26), (50, 1.44)]:
+            for i in [1]:
+                save_queries = False
+                detectors.append(("sim-k=%d-i=%d" % (k, i), SimilarityDetector(threshold=delta, K=k, ith_query=i, name="sim-k=%d-i=%d" % (k, i), save_queries=save_queries,  weights_path="./encoders/encoder_all.h5")))
+
+#        self.encode_once = detectors[0][1].encode
+        # ExperimentDetectors.__init__(self, detectors=detectors)
+
+        # detectors = [
+        #    ("sim-k=50-i=1", SimilarityDetector(threshold=1.44, K=50, name="sim-k=50-i=1", save_queries=True, weights_path="./encoders/encoder_all.h5")),
+        #    ("l2-k=50-i=1", L2Detector(threshold=5.07, K=50, name="l2-k=50-i=1", weights_path="./encoders/encoder_all.h5")),
+        #    ("l2-k=25-i=1", L2Detector(threshold=4.68, K=25, name="l2-k=25-i=1", weights_path="./encoders/encoder_all.h5")),
+        #    ("l2-k=10-i=1", L2Detector(threshold=4.07, K=10, name="l2-k=10-i=1", weights_path="./encoders/encoder_all.h5")),
+        #    ("l2-k=5-i=1", L2Detector(threshold=3.50, K=5, name="l2-k=5-i=1", weights_path="./encoders/encoder_all.h5")),
+        # ]
+        ExperimentDetectors.__init__(self, detectors=detectors)
+        self.encode_once = detectors[0][1].encode
+
+    def process(self, queries, num_queries_so_far):
+        # queries = self.encode_once(queries)
+        ExperimentDetectors.process(self, queries, num_queries_so_far, encoded=False)
 
 def cifar10_encoder(encode_dim=256):
     model = Sequential()

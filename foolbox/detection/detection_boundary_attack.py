@@ -153,8 +153,9 @@ if transform is not None:
 # TODO: Targeted attack
 x_test, y_test = get_test_model_correct(kmodel)
 x_test_idx = np.arange(x_test.shape[0])
-dets = []
+detections = {}
 dists = []
+queries = []
 l2_distortions = []
 linf_distortions = []
 successes = []
@@ -222,20 +223,31 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
             #    pred = np.argmax(kmodel.predict(np.expand_dims(adv.image, 0)), axis=-1)
             #    double_check.append((pred == target_class, pred, target_class))
 
-            print("[detections]", len(attack.detector.get_detections()), np.mean(attack.detector.get_detections()))
             print("[detections]", adv.adversarial_class == adv.target_class())
             print("[distortions]", adv.distance, np.linalg.norm(adv.original_image - adv.image))
-            dets.append(len(attack.detector.get_detections()))
-            dists.append(np.mean(attack.detector.get_detections()))
             linf_distortions.append(adv.distance.value)
             l2_distortions.append(np.linalg.norm(adv.original_image - adv.image))
             successes.append(adv.adversarial_class == adv.target_class())
+
+            query_num = 0
+            for name, detector in attack.detector.detectors.items():
+                # detector = attack.detector
+                print("[detections]", name, len(detector.get_detections()), np.mean(detector.get_detections()))
+                if name not in detections:
+                    detections[name] = []
+
+                dets = detections[name]
+                dets.append(len(detector.get_detections()))
+                dists.append(np.mean(detector.get_detections()))
+                query_num = np.sum(detector.get_detections())
+            queries.append(query_num)
+
             # indices_targets.append((img_index, target_idx, orig_class, target_class))
         except (AssertionError, AttributeError) as e:
             # failures.append((img_index, target_idx, orig_class, target_class))
             errors.append(e)
             continue
-np.savez_compressed(save_name, detections=dets, dists=dists, linf_distortions=linf_distortions, l2_distortions=l2_distortions, indices_targets=indices_targets, failures=failures)
+np.savez_compressed(save_name, detections=detections, queries=queries, dists=dists, linf_distortions=linf_distortions, l2_distortions=l2_distortions, indices_targets=indices_targets, failures=failures)
     ### Extract Detection Results ###
     # print("DETECTIONS:")
 
@@ -244,17 +256,19 @@ def process(npz):
     success_mask = x['linf_distortions'] <= 0.05
     failure_mask = x['linf_distortions'] > 0.05
 
-    queries = x['detections'] * x['dists']
-    detections = x['detections']
+    queries = x['queries']
     # Success rate, l2 distortion, number of queries, median detections
     success_rate = success_mask.sum() / 100
     l2_distortion = x['l2_distortions'][success_mask]
     mean_queries, median_queries = np.mean(queries[success_mask]), np.median(queries[success_mask])
-    mean_detections, median_detections = np.mean(detections[success_mask]), np.median(detections[success_mask])
     print("Success Rate", success_rate)
     print("l2_distortion", np.mean(l2_distortion), np.median(l2_distortion))
     print("mean, median queries:", mean_queries, median_queries)
-    print("mean, median detections:", mean_detections, median_detections)
+
+    dets = x['detections']
+    for name, detections in dets.items():
+        mean_detections, median_detections = np.mean(detections[success_mask]), np.median(detections[success_mask])
+        print("mean, median detections:", mean_detections, median_detections)
 
 print("TIME:", time.time() - start_time)
 print("[detections]", dets)

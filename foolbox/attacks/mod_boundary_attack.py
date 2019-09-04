@@ -52,7 +52,7 @@ from foolbox.attacks.blended_noise import BlendedUniformNoiseAttack
 import numpy as np
 from numpy.linalg import norm
 
-from.detection import Detector
+from.detection import Detector, MultiAttackDetectors
 
 class PerlinBoundaryAttack(Attack):
     """A powerful adversarial attack that requires neither gradients
@@ -180,7 +180,7 @@ class PerlinBoundaryAttack(Attack):
         self.detection_transform = detection_transform
 
         # Detector
-        self.detector = Detector(threshold=1.44, K=50)
+        self.detector = MultiAttackDetectors()
 
         assert sample_gen is not None, "We need it."
 
