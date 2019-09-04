@@ -211,7 +211,7 @@ with SampleGenerator(shape=img_shape, n_threads=1, queue_lengths=100) as sample_
 
         try:
             attack = PerlinBoundaryAttack()
-            attack(adv, starting_point=starting_img, iterations=args.num_iters, verbose=False, log_every_n_steps=1000, sample_gen=sample_gen,
+            attack(adv, starting_point=starting_img, iterations=args.num_iters, verbose=False, log_every_n_steps=100, sample_gen=sample_gen,
                     normal_factor=args.normal_factor,
                     detection_transform=transform
                     # detection_transform=transform_brightness(0.7)
